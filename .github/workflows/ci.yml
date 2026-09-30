@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Go ${{ matrix.go }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go: ['1.18', 'stable']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ matrix.go }}
+          cache: false
+
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      # Precaution, not yet verified on this workflow: the race detector in
+      # older Go releases can fail to map its shadow memory when the kernel
+      # uses a high mmap randomization setting. Remove if the leg passes
+      # without it.
+      - name: Lower mmap randomization for the race detector
+        if: matrix.go != 'stable'
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+
+      - name: go test
+        run: go test -timeout 120s -race -cover ./...
