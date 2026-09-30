@@ -629,19 +629,15 @@ func TestSetOperationsAgainstModel(t *testing.T) {
 			t.Fatalf("IsSupersetOfSet(%v, %v) != %v", sorted(a), sorted(b), superset)
 		}
 
-		// See TestKnownIssues for an empty receiver.
-		if len(a) > 0 && a.IsProperSupersetOfSet(b) != (superset && !equal) {
+		if a.IsProperSupersetOfSet(b) != (superset && !equal) {
 			t.Fatalf("IsProperSupersetOfSet(%v, %v) != %v", sorted(a), sorted(b), superset && !equal)
 		}
 	}
 }
 
-// TestKnownIssues holds the expected set semantics for inputs where the
-// current implementation gives a different answer. It is skipped until the
-// implementation is corrected.
-func TestKnownIssues(t *testing.T) {
-	t.Skip("known issues: slice arguments with repeated values, and IsProperSupersetOf on an empty set")
-
+// TestSliceArgumentsAreSets checks that a slice argument stands for the set of
+// its distinct values, so repeating a value does not change a result.
+func TestSliceArgumentsAreSets(t *testing.T) {
 	one, oneTwo := NewHashSet([]int{1}), NewHashSet([]int{1, 2})
 
 	if !one.SetEquals([]int{1, 1}) || oneTwo.SetEquals([]int{1, 1}) {
@@ -656,16 +652,281 @@ func TestKnownIssues(t *testing.T) {
 		t.Error("IsProperSupersetOf should treat the slice as a set")
 	}
 
-	empty := NewHashSet[int](nil)
-
-	if empty.IsProperSupersetOf(nil) || empty.IsProperSupersetOf([]int{1}) || empty.IsProperSupersetOfSet(nil) {
-		t.Error("the empty set is not a proper superset of any set")
-	}
-
 	// expectSet stops the test, so this check stays last.
 	sym := NewHashSet([]int{1})
 	sym.SymmetricExceptWith([]int{1, 1, 2, 2})
 	expectSet(t, sym, 2)
+}
+
+// TestEmptySetIsNotAProperSuperset checks that the empty set is not a proper
+// superset of any set, the empty set included.
+func TestEmptySetIsNotAProperSuperset(t *testing.T) {
+	var zero HashSet[int] // nil map
+
+	for _, empty := range []HashSet[int]{NewHashSet[int](nil), zero} {
+		if empty.IsProperSupersetOf(nil) || empty.IsProperSupersetOf([]int{1}) {
+			t.Error("IsProperSupersetOf: the empty set is not a proper superset of any set")
+		}
+
+		if empty.IsProperSupersetOfSet(nil) || empty.IsProperSupersetOfSet(NewHashSet([]int{1})) {
+			t.Error("IsProperSupersetOfSet: the empty set is not a proper superset of any set")
+		}
+	}
+}
+
+// TestDifferential checks every slice form and every Set form exhaustively
+// over small inputs. The receivers are every subset of {0, 1, 2}; the other
+// collections are every slice of length 0 through 4 drawn from the same values,
+// repeats included. Each slice form must give the same answer as its Set form
+// applied to NewHashSet of the slice, and each Set form must give the same
+// answer as a reference computed from plain maps, also when it is applied to
+// its own receiver.
+func TestDifferential(t *testing.T) {
+	universe := []int{0, 1, 2}
+
+	var receivers [][]int
+
+	for mask := 0; mask < 1<<len(universe); mask++ {
+		var r []int
+
+		for i, v := range universe {
+			if mask&(1<<i) != 0 {
+				r = append(r, v)
+			}
+		}
+
+		receivers = append(receivers, r)
+	}
+
+	others := [][]int{nil}
+
+	for n, level := 1, [][]int{nil}; n <= 4; n++ {
+		var next [][]int
+
+		for _, s := range level {
+			for _, v := range universe {
+				next = append(next, append(append([]int(nil), s...), v))
+			}
+		}
+
+		others = append(others, next...)
+		level = next
+	}
+
+	// The reference works on plain maps and calls no HashSet method.
+	toMap := func(values []int) map[int]bool {
+		m := make(map[int]bool)
+
+		for _, v := range values {
+			m[v] = true
+		}
+
+		return m
+	}
+
+	// within reports whether every element of a is in b.
+	within := func(a, b map[int]bool) bool {
+		for v := range a {
+			if !b[v] {
+				return false
+			}
+		}
+
+		return true
+	}
+
+	// pick returns, in ascending order, the values whose membership in a and
+	// b satisfies keep.
+	pick := func(a, b map[int]bool, keep func(inA, inB bool) bool) []int {
+		var out []int
+
+		for _, v := range universe {
+			if keep(a[v], b[v]) {
+				out = append(out, v)
+			}
+		}
+
+		return out
+	}
+
+	type query struct {
+		name  string
+		slice func(hs HashSet[int], other []int) bool
+		set   func(hs, other HashSet[int]) bool
+		want  func(a, b map[int]bool) bool
+	}
+
+	queries := []query{
+		{
+			name:  "SetEquals",
+			slice: func(hs HashSet[int], other []int) bool { return hs.SetEquals(other) },
+			set:   func(hs, other HashSet[int]) bool { return hs.SetEqualsSet(other) },
+			want:  func(a, b map[int]bool) bool { return within(a, b) && within(b, a) },
+		},
+		{
+			name:  "Overlaps",
+			slice: func(hs HashSet[int], other []int) bool { return hs.Overlaps(other) },
+			set:   func(hs, other HashSet[int]) bool { return hs.OverlapsSet(other) },
+			want: func(a, b map[int]bool) bool {
+				return len(pick(a, b, func(inA, inB bool) bool { return inA && inB })) > 0
+			},
+		},
+		{
+			name:  "IsSubsetOf",
+			slice: func(hs HashSet[int], other []int) bool { return hs.IsSubsetOf(other) },
+			set:   func(hs, other HashSet[int]) bool { return hs.IsSubsetOfSet(other) },
+			want:  func(a, b map[int]bool) bool { return within(a, b) },
+		},
+		{
+			name:  "IsProperSubsetOf",
+			slice: func(hs HashSet[int], other []int) bool { return hs.IsProperSubsetOf(other) },
+			set:   func(hs, other HashSet[int]) bool { return hs.IsProperSubsetOfSet(other) },
+			want:  func(a, b map[int]bool) bool { return within(a, b) && !within(b, a) },
+		},
+		{
+			name:  "IsSupersetOf",
+			slice: func(hs HashSet[int], other []int) bool { return hs.IsSupersetOf(other) },
+			set:   func(hs, other HashSet[int]) bool { return hs.IsSupersetOfSet(other) },
+			want:  func(a, b map[int]bool) bool { return within(b, a) },
+		},
+		{
+			name:  "IsProperSupersetOf",
+			slice: func(hs HashSet[int], other []int) bool { return hs.IsProperSupersetOf(other) },
+			set:   func(hs, other HashSet[int]) bool { return hs.IsProperSupersetOfSet(other) },
+			want:  func(a, b map[int]bool) bool { return within(b, a) && !within(a, b) },
+		},
+	}
+
+	type mutation struct {
+		name  string
+		slice func(hs HashSet[int], other []int)
+		set   func(hs, other HashSet[int])
+		want  func(a, b map[int]bool) []int
+	}
+
+	mutations := []mutation{
+		{
+			name:  "UnionWith",
+			slice: func(hs HashSet[int], other []int) { hs.UnionWith(other) },
+			set:   func(hs, other HashSet[int]) { hs.UnionWithSet(other) },
+			want: func(a, b map[int]bool) []int {
+				return pick(a, b, func(inA, inB bool) bool { return inA || inB })
+			},
+		},
+		{
+			name:  "IntersectWith",
+			slice: func(hs HashSet[int], other []int) { hs.IntersectWith(other) },
+			set:   func(hs, other HashSet[int]) { hs.IntersectWithSet(other) },
+			want: func(a, b map[int]bool) []int {
+				return pick(a, b, func(inA, inB bool) bool { return inA && inB })
+			},
+		},
+		{
+			name:  "ExceptWith",
+			slice: func(hs HashSet[int], other []int) { hs.ExceptWith(other) },
+			set:   func(hs, other HashSet[int]) { hs.ExceptWithSet(other) },
+			want: func(a, b map[int]bool) []int {
+				return pick(a, b, func(inA, inB bool) bool { return inA && !inB })
+			},
+		},
+		{
+			name:  "SymmetricExceptWith",
+			slice: func(hs HashSet[int], other []int) { hs.SymmetricExceptWith(other) },
+			set:   func(hs, other HashSet[int]) { hs.SymmetricExceptWithSet(other) },
+			want: func(a, b map[int]bool) []int {
+				return pick(a, b, func(inA, inB bool) bool { return inA != inB })
+			},
+		},
+	}
+
+	// Mismatches are gathered per method, so one run names every method that
+	// disagrees instead of stopping at the first.
+	type mismatch struct {
+		count int
+		first string
+	}
+
+	mismatches := make(map[string]*mismatch)
+	comparisons := 0
+
+	check := func(ok bool, name, format string, args ...interface{}) {
+		comparisons++
+
+		if ok {
+			return
+		}
+
+		m := mismatches[name]
+
+		if m == nil {
+			m = &mismatch{first: fmt.Sprintf(format, args...)}
+			mismatches[name] = m
+		}
+
+		m.count++
+	}
+
+	for _, r := range receivers {
+		a := toMap(r)
+
+		for _, o := range others {
+			b := toMap(o)
+
+			for _, q := range queries {
+				bySlice := q.slice(NewHashSet(r), o)
+				bySet := q.set(NewHashSet(r), NewHashSet(o))
+				want := q.want(a, b)
+
+				check(bySlice == bySet, q.name,
+					"receiver %v, slice %v: %v, but %sSet gives %v", r, o, bySlice, q.name, bySet)
+				check(bySet == want, q.name+"Set",
+					"receiver %v, set of %v: %v, want %v", r, o, bySet, want)
+			}
+
+			for _, m := range mutations {
+				bySlice, bySet := NewHashSet(r), NewHashSet(r)
+				m.slice(bySlice, o)
+				m.set(bySet, NewHashSet(o))
+				want := m.want(a, b)
+
+				check(equalInts(sorted(bySlice), sorted(bySet)), m.name,
+					"receiver %v, slice %v: %v, but %sSet gives %v", r, o, sorted(bySlice), m.name, sorted(bySet))
+				check(equalInts(sorted(bySet), want), m.name+"Set",
+					"receiver %v, set of %v: %v, want %v", r, o, sorted(bySet), want)
+			}
+		}
+
+		for _, q := range queries {
+			hs := NewHashSet(r)
+			got, want := q.set(hs, hs), q.want(a, a)
+
+			check(got == want, q.name+"Set", "receiver %v with itself: %v, want %v", r, got, want)
+		}
+
+		for _, m := range mutations {
+			hs := NewHashSet(r)
+			m.set(hs, hs)
+			want := m.want(a, a)
+
+			check(equalInts(sorted(hs), want), m.name+"Set",
+				"receiver %v with itself: %v, want %v", r, sorted(hs), want)
+		}
+	}
+
+	names := make([]string, 0, len(mismatches))
+
+	for name := range mismatches {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	for _, name := range names {
+		m := mismatches[name]
+		t.Errorf("%s: %d mismatches, first: %s", name, m.count, m.first)
+	}
+
+	t.Logf("%d receivers, %d slices, %d comparisons", len(receivers), len(others), comparisons)
 }
 
 func ExampleNewHashSet() {

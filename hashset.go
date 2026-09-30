@@ -107,22 +107,22 @@ func (hs HashSet[T]) ExceptWithSet(other HashSet[T]) {
 
 // SymmetricExceptWith modifies the current set to contain only elements that are present either in the set or in the specified slice, but not both.
 func (hs HashSet[T]) SymmetricExceptWith(other []T) {
-	if hs.IsEmpty() {
-		// If set is empty, then symmetric difference is other
-		hs.UnionWith(other)
-		return
-	}
-
-	for _, v := range other {
-		if !hs.Remove(v) {
-			hs.Add(v)
-		}
-	}
+	hs.SymmetricExceptWithSet(NewHashSet(other))
 }
 
 // SymmetricExceptWithSet modifies the current set to contain only elements that are present either in the set or in the specified set, but not both.
 func (hs HashSet[T]) SymmetricExceptWithSet(other HashSet[T]) {
-	hs.SymmetricExceptWith(other.Keys())
+	if hs.IsEmpty() {
+		// If set is empty, then symmetric difference is other
+		hs.UnionWithSet(other)
+		return
+	}
+
+	for _, v := range other.Keys() {
+		if !hs.Remove(v) {
+			hs.Add(v)
+		}
+	}
 }
 
 // IntersectWith modifies the current set to contain only elements that are present in the set and in the specified slice.
@@ -164,23 +164,23 @@ func (hs HashSet[T]) UnionWithSet(other HashSet[T]) {
 // SetEquals determines whether a set and the specified slice contain the same elements.
 // Returns true if the set is equal to other slice items; otherwise, false.
 func (hs HashSet[T]) SetEquals(other []T) bool {
-	if len(hs) != len(other) {
-		return false
-	}
-
-	for _, v := range other {
-		if !hs.Contains(v) {
-			return false
-		}
-	}
-
-	return true
+	return hs.SetEqualsSet(NewHashSet(other))
 }
 
 // SetEqualsSet determines whether a set and the specified set contain the same elements.
 // Returns true if the set is equal to other set; otherwise, false.
 func (hs HashSet[T]) SetEqualsSet(other HashSet[T]) bool {
-	return hs.SetEquals(other.Keys())
+	if len(hs) != len(other) {
+		return false
+	}
+
+	for k := range other {
+		if !hs.Contains(k) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // Overlaps determines whether the current set and a specified slice share common elements.
@@ -219,7 +219,7 @@ func (hs HashSet[T]) IsSubsetOfSet(other HashSet[T]) bool {
 		return true
 	}
 
-	// If set has more elements than slice, then it can't be a subset
+	// If set has more elements than the other set, then it can't be a subset
 	if len(hs) > len(other) {
 		return false
 	}
@@ -247,7 +247,7 @@ func (hs HashSet[T]) IsProperSubsetOfSet(other HashSet[T]) bool {
 		return len(other) > 0
 	}
 
-	// If set has more or equal elements than slice, then it can't be a proper subset
+	// If set has more or equal elements than the other set, then it can't be a proper subset
 	if len(hs) >= len(other) {
 		return false
 	}
@@ -264,18 +264,24 @@ func (hs HashSet[T]) IsProperSubsetOfSet(other HashSet[T]) bool {
 // IsSupersetOf determines whether a set is a superset of the specified slice.
 // Returns true if the set is a superset of other slice items; otherwise, false.
 func (hs HashSet[T]) IsSupersetOf(other []T) bool {
+	return hs.IsSupersetOfSet(NewHashSet(other))
+}
+
+// IsSupersetOfSet determines whether a set is a superset of the specified set.
+// Returns true if the set is a superset of other set; otherwise, false.
+func (hs HashSet[T]) IsSupersetOfSet(other HashSet[T]) bool {
 	// If other is the empty set then this is a superset
 	if len(other) == 0 {
 		return true
 	}
 
-	// If slice has more elements than set, then it can't be a superset
+	// If other set has more elements than set, then it can't be a superset
 	if len(other) > len(hs) {
 		return false
 	}
 
-	for _, v := range other {
-		if !hs.Contains(v) {
+	for k := range other {
+		if !hs.Contains(k) {
 			return false
 		}
 	}
@@ -283,18 +289,18 @@ func (hs HashSet[T]) IsSupersetOf(other []T) bool {
 	return true
 }
 
-// IsSupersetOfSet determines whether a set is a superset of the specified set.
-// Returns true if the set is a superset of other set; otherwise, false.
-func (hs HashSet[T]) IsSupersetOfSet(other HashSet[T]) bool {
-	return hs.IsSupersetOf(other.Keys())
-}
-
 // IsProperSupersetOf determines whether a set is a proper superset of the specified slice.
 // Returns true if the set is a proper superset of other slice items; otherwise, false.
 func (hs HashSet[T]) IsProperSupersetOf(other []T) bool {
-	// The empty set is not a proper subset of any set
+	return hs.IsProperSupersetOfSet(NewHashSet(other))
+}
+
+// IsProperSupersetOfSet determines whether a set is a proper superset of the specified set.
+// Returns true if the set is a proper superset of other set; otherwise, false.
+func (hs HashSet[T]) IsProperSupersetOfSet(other HashSet[T]) bool {
+	// The empty set is not a proper superset of any set
 	if hs.IsEmpty() {
-		return true
+		return false
 	}
 
 	// If other is the empty set then this is a proper superset
@@ -302,22 +308,16 @@ func (hs HashSet[T]) IsProperSupersetOf(other []T) bool {
 		return true // Set has at least one element, based on prior check
 	}
 
-	// If slice has more or equal elements than set, then it can't be a proper superset
+	// If other set has more or equal elements than set, then it can't be a proper superset
 	if len(other) >= len(hs) {
 		return false
 	}
 
-	for _, v := range other {
-		if !hs.Contains(v) {
+	for k := range other {
+		if !hs.Contains(k) {
 			return false
 		}
 	}
 
 	return true
-}
-
-// IsProperSupersetOfSet determines whether a set is a proper superset of the specified set.
-// Returns true if the set is a proper superset of other set; otherwise, false.
-func (hs HashSet[T]) IsProperSupersetOfSet(other HashSet[T]) bool {
-	return hs.IsProperSupersetOf(other.Keys())
 }

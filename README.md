@@ -48,7 +48,8 @@ func main() {
 ## Methods
 
 Most operations come in two forms: one takes a slice, and one with a `Set`
-suffix takes another `HashSet`.
+suffix takes another `HashSet`. A slice argument stands for the set of its
+distinct values, so repeating a value in it does not change the result.
 
 | Method | Purpose |
 |:--|:--|
@@ -63,18 +64,6 @@ suffix takes another `HashSet`.
 | `Overlaps`, `OverlapsSet` | Any element in common? |
 | `IsSubsetOf`, `IsSubsetOfSet`, `IsProperSubsetOf`, `IsProperSubsetOfSet` | Subset tests |
 | `IsSupersetOf`, `IsSupersetOfSet`, `IsProperSupersetOf`, `IsProperSupersetOfSet` | Superset tests |
-
-## Known issues
-
-- `SetEquals`, `IsSupersetOf`, `IsProperSupersetOf` and `SymmetricExceptWith`
-  compare against the slice's length or walk it element by element, so a slice
-  that repeats a value can give a wrong answer. The `Set` forms are not
-  affected.
-- `IsProperSupersetOf` and `IsProperSupersetOfSet` return `true` for an empty
-  set.
-
-`TestKnownIssues` in `hashset_test.go` holds the expected results and is
-skipped until these are fixed.
 
 ## Thread safety
 
