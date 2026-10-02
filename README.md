@@ -2,9 +2,11 @@
 
 A generic set for Go, built on a Go map, with a method surface that mirrors
 .NET's `HashSet<T>`. It has no dependencies outside the Go standard library.
+The type and constructor names, `HashSet` and `NewHashSet`, follow .NET's
+`HashSet<T>` on purpose.
 
 ```go
-type HashSet[T comparable] map[T]void
+type HashSet[T comparable] map[T]struct{}
 ```
 
 A `HashSet` is a map, so `len(hs)` and `for v := range hs` work directly.
@@ -17,7 +19,7 @@ adding to it panics, so create sets with `NewHashSet`.
 go get github.com/ritchiecarroll/hashset
 ```
 
-Requires Go 1.18 or later.
+Requires Go 1.21 or later.
 
 ## Usage
 
@@ -67,8 +69,8 @@ distinct values, so repeating a value in it does not change the result.
 
 ## Thread safety
 
-The methods are not thread-safe. To use a set from more than one goroutine,
-hold a lock around every call.
+A `HashSet` is not safe for concurrent use. To use a set from more than one
+goroutine, hold a lock around every use of it, `len` and `range` included.
 
 ## Origin
 

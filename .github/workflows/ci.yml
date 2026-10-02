@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        go: ['1.18', 'stable']
+        go: ['1.21', 'stable']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -38,10 +38,10 @@ jobs:
       - name: go vet
         run: go vet ./...
 
-      # Precaution, not yet verified on this workflow: the race detector in
-      # older Go releases can fail to map its shadow memory when the kernel
-      # uses a high mmap randomization setting. Remove if the leg passes
-      # without it.
+      # Precaution for the non-stable leg: the race detector in older Go
+      # releases can fail to map its shadow memory when the kernel uses a
+      # high mmap randomization setting. Whether this leg needs the step is
+      # not measured.
       - name: Lower mmap randomization for the race detector
         if: matrix.go != 'stable'
         run: sudo sysctl -w vm.mmap_rnd_bits=28

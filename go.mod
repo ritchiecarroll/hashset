@@ -1,3 +1,3 @@
 module github.com/ritchiecarroll/hashset
 
-go 1.18
+go 1.21

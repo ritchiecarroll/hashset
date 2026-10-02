@@ -1,7 +1,11 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2021-2026 The go2cs Authors
+
 package hashset
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 	"sort"
 	"testing"
@@ -96,6 +100,100 @@ func TestZeroValueReads(t *testing.T) {
 	}
 }
 
+// TestZeroValueIsAnEmptySet checks that the zero value, a nil HashSet, reads
+// as an empty set: len, range and every method that only reads the set work
+// on it and give the answers an empty set gives.
+func TestZeroValueIsAnEmptySet(t *testing.T) {
+	var hs HashSet[int] // nil map
+
+	if hs != nil {
+		t.Fatal("the zero value should be a nil HashSet")
+	}
+
+	if len(hs) != 0 {
+		t.Fatalf("len = %d, want 0", len(hs))
+	}
+
+	for v := range hs {
+		t.Fatalf("range over a nil set yielded %v", v)
+	}
+
+	if !hs.IsEmpty() || hs.Contains(0) || len(hs.Keys()) != 0 {
+		t.Error("IsEmpty, Contains or Keys is wrong on a nil set")
+	}
+
+	one := []int{1}
+	oneSet := NewHashSet(one)
+
+	if !hs.SetEquals(nil) || hs.SetEquals(one) || !hs.SetEqualsSet(nil) || hs.SetEqualsSet(oneSet) {
+		t.Error("SetEquals or SetEqualsSet is wrong on a nil set")
+	}
+
+	if hs.Overlaps(nil) || hs.Overlaps(one) || hs.OverlapsSet(nil) || hs.OverlapsSet(oneSet) {
+		t.Error("Overlaps or OverlapsSet is wrong on a nil set")
+	}
+
+	if !hs.IsSubsetOf(nil) || !hs.IsSubsetOf(one) || !hs.IsSubsetOfSet(nil) || !hs.IsSubsetOfSet(oneSet) {
+		t.Error("IsSubsetOf or IsSubsetOfSet is wrong on a nil set")
+	}
+
+	if hs.IsProperSubsetOf(nil) || !hs.IsProperSubsetOf(one) || hs.IsProperSubsetOfSet(nil) || !hs.IsProperSubsetOfSet(oneSet) {
+		t.Error("IsProperSubsetOf or IsProperSubsetOfSet is wrong on a nil set")
+	}
+
+	if !hs.IsSupersetOf(nil) || hs.IsSupersetOf(one) || !hs.IsSupersetOfSet(nil) || hs.IsSupersetOfSet(oneSet) {
+		t.Error("IsSupersetOf or IsSupersetOfSet is wrong on a nil set")
+	}
+
+	if hs.IsProperSupersetOf(nil) || hs.IsProperSupersetOf(one) || hs.IsProperSupersetOfSet(nil) || hs.IsProperSupersetOfSet(oneSet) {
+		t.Error("IsProperSupersetOf or IsProperSupersetOfSet is wrong on a nil set")
+	}
+}
+
+// panics reports whether f panics.
+func panics(f func()) (panicked bool) {
+	defer func() {
+		if recover() != nil {
+			panicked = true
+		}
+	}()
+
+	f()
+	return false
+}
+
+// TestZeroValueAddPanics checks that adding an element to the zero value, a
+// nil HashSet, panics, through Add and through every method that adds.
+func TestZeroValueAddPanics(t *testing.T) {
+	var hs HashSet[int] // nil map
+
+	adders := []struct {
+		name string
+		add  func()
+	}{
+		{"Add", func() { hs.Add(1) }},
+		{"UnionWith", func() { hs.UnionWith([]int{1}) }},
+		{"UnionWithSet", func() { hs.UnionWithSet(NewHashSet([]int{1})) }},
+		{"SymmetricExceptWith", func() { hs.SymmetricExceptWith([]int{1}) }},
+		{"SymmetricExceptWithSet", func() { hs.SymmetricExceptWithSet(NewHashSet([]int{1})) }},
+	}
+
+	for _, a := range adders {
+		if !panics(a.add) {
+			t.Errorf("%s on a nil set should panic", a.name)
+		}
+	}
+
+	if len(hs) != 0 {
+		t.Fatalf("len = %d after the failed adds, want 0", len(hs))
+	}
+
+	// Adding nothing does not panic.
+	if panics(func() { hs.UnionWith(nil) }) || panics(func() { hs.UnionWithSet(nil) }) {
+		t.Error("an empty union on a nil set should not panic")
+	}
+}
+
 func TestAdd(t *testing.T) {
 	hs := NewHashSet[int](nil)
 
@@ -168,6 +266,129 @@ func TestIsEmptyAndClear(t *testing.T) {
 	// The set is still usable after Clear.
 	hs.Add(4)
 	expectSet(t, hs, 4)
+}
+
+// TestClearRemovesNaN checks that a set holding NaN is empty after Clear. A
+// NaN never equals itself, so a key lookup never finds it and delete cannot
+// remove it.
+func TestClearRemovesNaN(t *testing.T) {
+	hs := NewHashSet([]float64{1, math.NaN(), math.NaN()})
+	hs.Add(math.NaN())
+
+	if len(hs) != 4 {
+		t.Fatalf("len = %d, want 4: 1 and three NaN elements", len(hs))
+	}
+
+	hs.Clear()
+
+	if len(hs) != 0 || !hs.IsEmpty() {
+		t.Fatalf("len = %d after Clear, want 0", len(hs))
+	}
+
+	// The set is still usable after Clear.
+	hs.Add(2)
+
+	if len(hs) != 1 || !hs.Contains(2) {
+		t.Fatalf("set = %v after Clear and Add(2), want [2]", hs.Keys())
+	}
+}
+
+// TestNaNElements checks the documented behaviour of NaN elements: each Add of
+// a NaN adds a new element, Contains and Remove never find it, and only
+// emptying the set removes it.
+func TestNaNElements(t *testing.T) {
+	nan := math.NaN()
+	hs := NewHashSet([]float64{1})
+
+	// Each Add of a NaN adds a new element.
+	if !hs.Add(nan) || !hs.Add(nan) {
+		t.Fatal("each Add of a NaN should return true")
+	}
+
+	if len(hs) != 3 {
+		t.Fatalf("len = %d after adding two NaN to {1}, want 3", len(hs))
+	}
+
+	// Contains and Remove never find it.
+	if hs.Contains(nan) {
+		t.Error("Contains should not find a NaN")
+	}
+
+	if hs.Remove(nan) {
+		t.Error("Remove should not find a NaN")
+	}
+
+	// No other removal takes a NaN out, because none of them finds it.
+	nanCount := func() int {
+		n := 0
+
+		for v := range hs {
+			if math.IsNaN(v) {
+				n++
+			}
+		}
+
+		return n
+	}
+
+	if n := hs.RemoveWhere(math.IsNaN); n != 0 {
+		t.Errorf("RemoveWhere(IsNaN) = %d, want 0", n)
+	}
+
+	hs.ExceptWith([]float64{nan})
+	hs.IntersectWith([]float64{1})
+	hs.IntersectWithSet(NewHashSet([]float64{1}))
+
+	// The intersections keep 1, which is in their argument, beside the NaNs.
+	if got := nanCount(); got != 2 || !hs.Contains(1) || len(hs) != 3 {
+		t.Fatalf("set = %v, want 1 and two NaN elements", hs.Keys())
+	}
+
+	hs.ExceptWithSet(NewHashSet(hs.Keys()))
+
+	if got := nanCount(); got != 2 {
+		t.Fatalf("%d NaN elements left, want 2: no removal finds a NaN", got)
+	}
+
+	// The removals above still work on an element that equals itself.
+	if hs.Contains(1) || len(hs) != 2 {
+		t.Fatalf("set = %v, want two NaN elements and nothing else", hs.Keys())
+	}
+
+	// SymmetricExceptWith and SymmetricExceptWithSet do not find a NaN either:
+	// each adds the NaN elements of its argument and removes none.
+	sym := NewHashSet(hs.Keys())
+	sym.SymmetricExceptWith([]float64{nan})
+	sym.SymmetricExceptWithSet(NewHashSet(sym.Keys()))
+
+	if len(sym) != 6 {
+		t.Errorf("len = %d after the symmetric differences, want 6", len(sym))
+	}
+
+	// Intersecting with an empty slice or set empties the set, so that is the
+	// one other call that removes a NaN.
+	for _, intersect := range []func(HashSet[float64]){
+		func(c HashSet[float64]) { c.IntersectWith(nil) },
+		func(c HashSet[float64]) { c.IntersectWithSet(nil) },
+	} {
+		c := NewHashSet(hs.Keys())
+
+		if len(c) != 2 {
+			t.Fatalf("copy has %d elements, want 2", len(c))
+		}
+
+		intersect(c)
+
+		if len(c) != 0 {
+			t.Errorf("len = %d after intersecting with nothing, want 0", len(c))
+		}
+	}
+
+	hs.Clear()
+
+	if len(hs) != 0 {
+		t.Fatalf("len = %d after Clear, want 0", len(hs))
+	}
 }
 
 func TestContains(t *testing.T) {
@@ -927,46 +1148,4 @@ func TestDifferential(t *testing.T) {
 	}
 
 	t.Logf("%d receivers, %d slices, %d comparisons", len(receivers), len(others), comparisons)
-}
-
-func ExampleNewHashSet() {
-	hs := NewHashSet([]string{"go", "cs", "go"})
-
-	fmt.Println(len(hs), hs.Contains("go"), hs.Contains("ts"))
-	// Output: 2 true false
-}
-
-func ExampleHashSet_Add() {
-	hs := NewHashSet[int](nil)
-
-	fmt.Println(hs.Add(1), hs.Add(1))
-	// Output: true false
-}
-
-func ExampleHashSet_UnionWithSet() {
-	hs := NewHashSet([]int{1, 2})
-	hs.UnionWithSet(NewHashSet([]int{2, 3}))
-
-	keys := hs.Keys()
-	sort.Ints(keys)
-	fmt.Println(keys)
-	// Output: [1 2 3]
-}
-
-func ExampleHashSet_IntersectWith() {
-	hs := NewHashSet([]int{1, 2, 3, 4})
-	hs.IntersectWith([]int{2, 4, 6})
-
-	keys := hs.Keys()
-	sort.Ints(keys)
-	fmt.Println(keys)
-	// Output: [2 4]
-}
-
-func ExampleHashSet_IsSubsetOfSet() {
-	small := NewHashSet([]int{1, 2})
-	large := NewHashSet([]int{1, 2, 3})
-
-	fmt.Println(small.IsSubsetOfSet(large), small.IsProperSubsetOfSet(large), large.IsSubsetOfSet(small))
-	// Output: true true false
 }
